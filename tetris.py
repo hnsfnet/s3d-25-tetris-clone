@@ -132,6 +132,28 @@ SHAPE_TYPES = list(SHAPES.keys())
 
 SCORE_TABLE = {1: 100, 2: 300, 3: 500, 4: 800}
 
+JLSTZ_WALL_KICKS = {
+    (0, 1): [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+    (1, 0): [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
+    (1, 2): [(0, 0), (1, 0), (1, -1), (0, 2), (1, 2)],
+    (2, 1): [(0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)],
+    (2, 3): [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+    (3, 2): [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+    (3, 0): [(0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)],
+    (0, 3): [(0, 0), (1, 0), (1, 1), (0, -2), (1, -2)],
+}
+
+I_WALL_KICKS = {
+    (0, 1): [(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
+    (1, 0): [(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
+    (1, 2): [(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
+    (2, 1): [(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
+    (2, 3): [(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
+    (3, 2): [(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
+    (3, 0): [(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
+    (0, 3): [(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
+}
+
 
 class Piece:
     def __init__(self, shape_type):
@@ -168,11 +190,13 @@ class Tetris:
     def spawn_piece(self):
         if self.next_piece is None:
             self.next_piece = Piece(random.choice(SHAPE_TYPES))
-        self.current_piece = self.next_piece
+        new_piece = self.next_piece
+        if self.check_collision(new_piece, 0, 0):
+            self.game_over = True
+            return
+        self.current_piece = new_piece
         self.next_piece = Piece(random.choice(SHAPE_TYPES))
         self.can_hold = True
-        if self.check_collision(self.current_piece, 0, 0):
-            self.game_over = True
 
     def hold_piece(self):
         if not self.can_hold:
@@ -183,10 +207,13 @@ class Tetris:
             self.spawn_piece()
         else:
             temp_type = self.held_piece.type
-            self.held_piece = Piece(self.current_piece.type)
-            self.current_piece = Piece(temp_type)
-            if self.check_collision(self.current_piece, 0, 0):
+            new_piece = Piece(temp_type)
+            if self.check_collision(new_piece, 0, 0):
                 self.game_over = True
+                self.can_hold = True
+                return False
+            self.held_piece = Piece(self.current_piece.type)
+            self.current_piece = new_piece
         return True
 
     def check_collision(self, piece, dx, dy):
@@ -212,17 +239,27 @@ class Tetris:
         return False
 
     def rotate_piece(self):
-        self.current_piece.rotate()
-        if self.check_collision(self.current_piece, 0, 0):
-            kicks = [-1, 1, -2, 2]
-            kicked = False
-            for kick in kicks:
-                if not self.check_collision(self.current_piece, kick, 0):
-                    self.current_piece.x += kick
-                    kicked = True
-                    break
-            if not kicked:
-                self.current_piece.unrotate()
+        piece = self.current_piece
+        old_rot = piece.rotation
+        piece.rotate()
+        new_rot = piece.rotation
+
+        if piece.type == 'I':
+            kicks = I_WALL_KICKS.get((old_rot, new_rot), [(0, 0)])
+        elif piece.type == 'O':
+            kicks = [(0, 0)]
+        else:
+            kicks = JLSTZ_WALL_KICKS.get((old_rot, new_rot), [(0, 0)])
+
+        kicked = False
+        for dx, dy in kicks:
+            if not self.check_collision(piece, dx, dy):
+                piece.x += dx
+                piece.y += dy
+                kicked = True
+                break
+        if not kicked:
+            piece.unrotate()
 
     def hard_drop(self):
         drop_distance = 0
@@ -239,18 +276,25 @@ class Tetris:
                 if cell:
                     grid_y = self.current_piece.y + r
                     grid_x = self.current_piece.x + c
-                    if grid_y >= 0:
-                        self.grid[grid_y][grid_x] = self.current_piece.color
+                    if grid_y < 0:
+                        self.game_over = True
+                        return
+                    self.grid[grid_y][grid_x] = self.current_piece.color
         self.clear_lines()
         if not self.game_over:
             self.spawn_piece()
 
     def clear_lines(self):
-        new_grid = [row for row in self.grid if any(cell is None for cell in row)]
-        cleared = GRID_HEIGHT - len(new_grid)
-        for _ in range(cleared):
-            new_grid.insert(0, [None for _ in range(GRID_WIDTH)])
-        self.grid = new_grid
+        cleared = 0
+        y = GRID_HEIGHT - 1
+        while y >= 0:
+            if all(cell is not None for cell in self.grid[y]):
+                for move_y in range(y, 0, -1):
+                    self.grid[move_y] = list(self.grid[move_y - 1])
+                self.grid[0] = [None for _ in range(GRID_WIDTH)]
+                cleared += 1
+            else:
+                y -= 1
         if cleared > 0:
             self.score += SCORE_TABLE.get(cleared, 0) * self.level
             self.lines_cleared += cleared
