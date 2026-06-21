@@ -34,3 +34,11 @@ class Piece:
     def unrotate(self):
         self._shape = rotate_matrix_ccw(self._shape)
         self.rotation = (self.rotation - 1) % 4
+
+    def get_bounding_box(self):
+        shape = self._shape
+        rows = [r for r, row in enumerate(shape) if any(cell for cell in row)]
+        cols = [c for c in range(len(shape[0])) if any(row[c] for row in shape)]
+        if not rows or not cols:
+            return (0, 0, 0, 0)
+        return (min(rows), max(rows), min(cols), max(cols))
