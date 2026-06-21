@@ -157,6 +157,8 @@ class Tetris:
         self.grid = [[None for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
         self.current_piece = None
         self.next_piece = None
+        self.held_piece = None
+        self.can_hold = True
         self.score = 0
         self.level = 1
         self.lines_cleared = 0
@@ -168,8 +170,24 @@ class Tetris:
             self.next_piece = Piece(random.choice(SHAPE_TYPES))
         self.current_piece = self.next_piece
         self.next_piece = Piece(random.choice(SHAPE_TYPES))
+        self.can_hold = True
         if self.check_collision(self.current_piece, 0, 0):
             self.game_over = True
+
+    def hold_piece(self):
+        if not self.can_hold:
+            return False
+        self.can_hold = False
+        if self.held_piece is None:
+            self.held_piece = Piece(self.current_piece.type)
+            self.spawn_piece()
+        else:
+            temp_type = self.held_piece.type
+            self.held_piece = Piece(self.current_piece.type)
+            self.current_piece = Piece(temp_type)
+            if self.check_collision(self.current_piece, 0, 0):
+                self.game_over = True
+        return True
 
     def check_collision(self, piece, dx, dy):
         shape = piece.get_shape()
@@ -278,49 +296,47 @@ def draw_piece(surface, piece, offset_x=0, offset_y=0):
 
 
 def draw_ghost_piece(surface, tetris):
-    ghost = tetris.current_piece
-    ghost_y = ghost.y
-    while not tetris.check_collision(ghost, 0, ghost_y - ghost.y + 1):
-        if tetris.check_collision(ghost, 0, ghost_y - ghost.y + 1):
-            break
-    temp_y = ghost.y
+    piece = tetris.current_piece
     drop_distance = 0
-    while not tetris.check_collision(ghost, 0, drop_distance + 1):
+    while not tetris.check_collision(piece, 0, drop_distance + 1):
         drop_distance += 1
 
-    shape = ghost.get_shape()
+    shape = piece.get_shape()
     for r, row in enumerate(shape):
         for c, cell in enumerate(row):
             if cell:
                 rect = pygame.Rect(
-                    PLAY_AREA_X + (ghost.x + c) * CELL_SIZE,
-                    PLAY_AREA_Y + (temp_y + r + drop_distance) * CELL_SIZE,
+                    PLAY_AREA_X + (piece.x + c) * CELL_SIZE,
+                    PLAY_AREA_Y + (piece.y + r + drop_distance) * CELL_SIZE,
                     CELL_SIZE,
                     CELL_SIZE
                 )
                 s = pygame.Surface((CELL_SIZE - 2, CELL_SIZE - 2))
                 s.set_alpha(80)
-                s.fill(ghost.color)
+                s.fill(piece.color)
                 surface.blit(s, (rect.x + 1, rect.y + 1))
 
 
-def draw_next_piece(surface, piece):
-    info_x = PLAY_AREA_X + GRID_WIDTH * CELL_SIZE + 30
-    info_y = PLAY_AREA_Y
+def draw_preview_box(surface, x, y, title, piece, can_use=True):
     font = pygame.font.Font(None, 24)
-    text = font.render("NEXT", True, WHITE)
-    surface.blit(text, (info_x, info_y))
+    text_color = WHITE if can_use else GRAY
+    text = font.render(title, True, text_color)
+    surface.blit(text, (x, y))
 
-    box_size = 120
-    box_rect = pygame.Rect(info_x, info_y + 30, box_size, box_size)
-    pygame.draw.rect(surface, GRAY, box_rect, 2)
+    box_size = 100
+    box_rect = pygame.Rect(x, y + 30, box_size, box_size)
+    border_color = GRAY if can_use else (30, 30, 30)
+    pygame.draw.rect(surface, border_color, box_rect, 2)
+
+    if piece is None:
+        return
 
     shape = piece.get_shape()
     shape_h = len(shape)
     shape_w = len(shape[0])
-    cell = 20
-    offset_x = info_x + (box_size - shape_w * cell) // 2
-    offset_y = info_y + 30 + (box_size - shape_h * cell) // 2
+    cell = 18
+    offset_x = x + (box_size - shape_w * cell) // 2
+    offset_y = y + 30 + (box_size - shape_h * cell) // 2
 
     for r, row in enumerate(shape):
         for c, cell_val in enumerate(row):
@@ -331,12 +347,30 @@ def draw_next_piece(surface, piece):
                     cell,
                     cell
                 )
-                pygame.draw.rect(surface, piece.color, rect.inflate(-2, -2))
+                if not can_use:
+                    s = pygame.Surface((cell - 2, cell - 2))
+                    s.set_alpha(60)
+                    s.fill(piece.color)
+                    surface.blit(s, (rect.x + 1, rect.y + 1))
+                else:
+                    pygame.draw.rect(surface, piece.color, rect.inflate(-2, -2))
+
+
+def draw_hold_piece(surface, tetris):
+    info_x = PLAY_AREA_X + GRID_WIDTH * CELL_SIZE + 30
+    info_y = PLAY_AREA_Y
+    draw_preview_box(surface, info_x, info_y, "HOLD", tetris.held_piece, tetris.can_hold)
+
+
+def draw_next_piece(surface, piece):
+    info_x = PLAY_AREA_X + GRID_WIDTH * CELL_SIZE + 30
+    info_y = PLAY_AREA_Y + 150
+    draw_preview_box(surface, info_x, info_y, "NEXT", piece)
 
 
 def draw_info(surface, tetris):
     info_x = PLAY_AREA_X + GRID_WIDTH * CELL_SIZE + 30
-    info_y = PLAY_AREA_Y + 170
+    info_y = PLAY_AREA_Y + 300
     font = pygame.font.Font(None, 24)
 
     score_text = font.render(f"SCORE", True, WHITE)
@@ -418,6 +452,8 @@ def main():
                         tetris.rotate_piece()
                     elif event.key == pygame.K_SPACE:
                         tetris.hard_drop()
+                    elif event.key == pygame.K_c:
+                        tetris.hold_piece()
 
             if event.type == fall_event and not tetris.game_over:
                 if not tetris.move(0, 1):
@@ -435,6 +471,7 @@ def main():
             draw_ghost_piece(screen, tetris)
             draw_piece(screen, tetris.current_piece)
 
+        draw_hold_piece(screen, tetris)
         draw_next_piece(screen, tetris.next_piece)
         draw_info(screen, tetris)
 
